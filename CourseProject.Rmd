@@ -1,0 +1,128 @@
+---
+title: "CourseProject"
+author: "Y. Lu"
+date: "2019Äê2ÔÂ15ÈÕ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. loading and clearning data
+
+
+
+```{r load_and_clean}
+options(scipen = 1)  
+library(R.utils)
+library(ggplot2)
+library(lattice)
+library(plyr)
+library(dplyr)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+
+if(!file.exists("pml-training.csv")) {
+
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(url, "pml-training.csv")
+}
+
+if(!file.exists("pml-testing.csv")) {
+
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url, "pml-testing.csv")
+}
+
+TrainIn=read.csv("pml-training.csv",sep=",",na.strings=c("NA","#DIV/0!",""))
+TestingIn=read.csv("pml-testing.csv",sep=",",na.strings=c("NA","#DIV/0!",""))
+
+dim(TrainIn)
+sum(is.na(TrainIn$var_accel_arm))
+```
+
+Columns with too many NA values are deleted. Columns that contain irrelavent information are also not considered. 
+
+```{r clearning_NA}
+
+ColToRemove <- which(colSums(is.na(TrainIn)|TrainIn=="")>0.9*dim(TrainIn)[1]) 
+Trainout2 <- TrainIn[,-ColToRemove]
+Trainout <- Trainout2[,-c(1:7)]
+
+ColToRemove <- which(colSums(is.na(TestingIn)|TestingIn=="")>0.9*dim(TestingIn)[1]) 
+Testingout2 <- TestingIn[,-ColToRemove]
+Testingout <- Testingout2[,-1]
+
+```
+
+
+
+## Data Processing
+
+pca technique is firstly used because there are still too many variables. In this section, pca is applied and data is separated into modeling data and validation data. 
+
+```{r pca}
+## 
+
+preProc <- preProcess(Trainout[,1:52],method="pca",thresh=.95)
+
+TrainPC<-predict(preProc,Trainout)
+TestPC<-predict(preProc,Testingout)
+
+set.seed(12345)
+indTrain <- createDataPartition(TrainPC$classe, p=0.75, list=FALSE)
+
+TrainD <- Trainout[indTrain,]
+TestD <- Trainout[-indTrain,]
+
+```
+
+For capturing 95 percent of the variance, 25 columns are left. In the following content, three methods are applied: classification tree, randome forest and gradient boosting. Accuracy of prediciton using each method is calculated. 
+
+#### Classification tree method
+``` {r CTM}
+trControl=trainControl(method='cv',number=5)
+ModelCT=train(classe~.,data=TrainD,method='rpart',trControl=trControl)
+
+PredCT=predict(ModelCT,newdata=TestD)
+fancyRpartPlot(ModelCT$finalModel)
+confCT=confusionMatrix(TestD$classe,PredCT)
+confCT$overall[1]
+```
+#### Random forests method
+``` {r RFM}
+ModelRF <- train(classe~., data=TrainD, method="rf", trControl=trControl, verbose=FALSE)
+PredRF=predict(ModelRF,newdata=TestD)
+
+ModelRF2=randomForest(classe~.,data=TrainD)
+
+confRF <- confusionMatrix(TestD$classe,PredRF)
+confRF$overall[1]
+
+plot(ModelRF$finalModel,main="Model error of Random forest model by number of trees")
+MostImpVars <- varImp(ModelRF)
+MostImpVars
+```
+
+#### gradient boosting method
+```{r GBM}
+ModelGBM <- train(classe~., data=TrainD, method="gbm",trControl=trControl, verbose=FALSE)
+
+PredGBM <- predict(ModelGBM,newdata=TestD)
+
+confGBM <- confusionMatrix(TestD$classe,PredGBM)
+confGBM$overall[1]
+```
+
+The Random Forests method has the highest accuracy and therefore is chosen for prediction. 
+
+## prediction
+
+``` {r prediction}
+FinalTestPred <- predict(ModelRF,newdata=Testingout)
+FinalTestPred
+```
